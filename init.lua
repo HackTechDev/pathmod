@@ -54,6 +54,21 @@ minetest.register_entity("pathmod:marker", {
     end
 })
 
+-- Lister les chemins existants
+minetest.register_chatcommand("pathlist", {
+    description = "Liste tous les chemins",
+    func = function(name)
+        local list = {}
+        for k, v in pairs(paths) do
+            table.insert(list, k .. " (" .. #v .. " points)")
+        end
+        if #list == 0 then
+            return true, "Aucun chemin défini."
+        end
+        return true, "Chemins : " .. table.concat(list, ", ")
+    end
+})
+
 -- Commande : vitesse
 minetest.register_chatcommand("pathspeed", {
     params = "<vitesse>",
