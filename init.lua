@@ -3,26 +3,24 @@ local storage = minetest.get_mod_storage()
 local paths = minetest.deserialize(storage:get_string("paths")) or {}
 local markers = {}
 local following_players = {}
-local player_speed = {} -- vitesse par joueur
+local player_speed = {}
+local player_yaw = {} -- yaw actuel des joueurs
 
--- Sauvegarde des chemins
+-- Sauvegarde
 local function save_paths()
     storage:set_string("paths", minetest.serialize(paths))
 end
 
--- Supprimer les balises
+-- Balises
 local function clear_markers(pathname)
     if markers[pathname] then
         for _, obj in ipairs(markers[pathname]) do
-            if obj and obj:get_luaentity() then
-                obj:remove()
-            end
+            if obj and obj:get_luaentity() then obj:remove() end
         end
         markers[pathname] = {}
     end
 end
 
--- Créer balises
 local function create_markers(pathname)
     clear_markers(pathname)
     markers[pathname] = {}
@@ -59,25 +57,22 @@ minetest.register_entity("pathmod:marker", {
 -- Commande : vitesse
 minetest.register_chatcommand("pathspeed", {
     params = "<vitesse>",
-    description = "Définit la vitesse de suivi du chemin (m/s)",
+    description = "Définit la vitesse (m/s)",
     func = function(name, param)
         local val = tonumber(param)
         if not val or val <= 0 then
-            return false, "Usage: /pathspeed <vitesse> (ex: 4)"
+            return false, "Usage: /pathspeed <vitesse>"
         end
         player_speed[name] = val
         return true, "Vitesse définie à " .. val .. " m/s."
     end
 })
 
--- Commande : créer chemin
+-- Commandes de gestion de chemin
 minetest.register_chatcommand("pathnew", {
     params = "<nom>",
-    description = "Crée un nouveau chemin vide",
     func = function(name, param)
-        if param == "" then
-            return false, "Usage: /pathnew <nom>"
-        end
+        if param == "" then return false, "Usage: /pathnew <nom>" end
         paths[param] = {}
         save_paths()
         clear_markers(param)
@@ -85,14 +80,10 @@ minetest.register_chatcommand("pathnew", {
     end
 })
 
--- Commande : ajouter point
 minetest.register_chatcommand("pathadd", {
     params = "<nom>",
-    description = "Ajoute un point au chemin",
     func = function(name, param)
-        if not paths[param] then
-            return false, "Chemin inexistant."
-        end
+        if not paths[param] then return false, "Chemin inexistant." end
         local player = minetest.get_player_by_name(name)
         if player then
             local pos = vector.round(player:get_pos())
@@ -104,52 +95,35 @@ minetest.register_chatcommand("pathadd", {
     end
 })
 
--- Commande : suivre chemin
 minetest.register_chatcommand("pathfollow", {
     params = "<nom>",
-    description = "Suis le chemin",
     func = function(name, param)
         if not paths[param] or #paths[param] == 0 then
             return false, "Chemin vide ou inexistant."
         end
         following_players[name] = {path = param, index = 1}
+        player_yaw[name] = minetest.get_player_by_name(name):get_look_horizontal()
         create_markers(param)
-        return true, "Suivi du chemin '" .. param .. "'."
+        return true, "Suivi de '" .. param .. "'."
     end
 })
 
--- Commande : liste chemins
-minetest.register_chatcommand("pathlist", {
-    description = "Liste les chemins",
-    func = function(name)
-        local list = {}
-        for k, v in pairs(paths) do
-            table.insert(list, k .. " (" .. #v .. " points)")
-        end
-        if #list == 0 then
-            return true, "Aucun chemin défini."
-        end
-        return true, "Chemins : " .. table.concat(list, ", ")
-    end
-})
-
--- Commande : supprimer chemin
 minetest.register_chatcommand("pathclear", {
     params = "<nom>",
-    description = "Supprime un chemin",
     func = function(name, param)
         if paths[param] then
             paths[param] = nil
             save_paths()
             clear_markers(param)
-            return true, "Chemin '" .. param .. "' supprimé."
+            return true, "Chemin supprimé."
         end
-        return false, "Ce chemin n'existe pas."
+        return false, "Chemin inexistant."
     end
 })
 
--- Déplacement fluide
+-- Rotation fluide + déplacement
 minetest.register_globalstep(function(dtime)
+    local rotation_speed = math.rad(120) -- vitesse angulaire max (120°/s)
     for name, state in pairs(following_players) do
         local player = minetest.get_player_by_name(name)
         if player then
@@ -160,11 +134,25 @@ minetest.register_globalstep(function(dtime)
                 local dir = vector.direction(pos, target)
                 local dist = vector.distance(pos, target)
 
-                -- Orientation
-                local yaw = math.atan2(dir.z, dir.x) - math.pi / 2
-                player:set_look_horizontal(yaw)
+                -- Calcul Yaw cible
+                local target_yaw = math.atan2(dir.z, dir.x) - math.pi / 2
+                local current_yaw = player_yaw[name] or player:get_look_horizontal()
+                local diff = target_yaw - current_yaw
 
-                -- Vitesse personnalisée ou par défaut
+                -- Normalisation -pi à pi
+                if diff > math.pi then diff = diff - 2 * math.pi end
+                if diff < -math.pi then diff = diff + 2 * math.pi end
+
+                -- Rotation progressive
+                if math.abs(diff) > rotation_speed * dtime then
+                    current_yaw = current_yaw + rotation_speed * dtime * (diff > 0 and 1 or -1)
+                else
+                    current_yaw = target_yaw
+                end
+                player_yaw[name] = current_yaw
+                player:set_look_horizontal(current_yaw)
+
+                -- Vitesse
                 local speed = player_speed[name] or 4
 
                 -- Avancer
