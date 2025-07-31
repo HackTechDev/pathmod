@@ -226,7 +226,7 @@ minetest.register_chatcommand("pathshow", {
 
 -- Rotation fluide + déplacement
 minetest.register_globalstep(function(dtime)
-    local rotation_speed = math.rad(120) -- vitesse angulaire max (120°/s)
+    local rotation_speed = math.rad(120)
     for name, state in pairs(following_players) do
         local player = minetest.get_player_by_name(name)
         if player then
@@ -237,16 +237,12 @@ minetest.register_globalstep(function(dtime)
                 local dir = vector.direction(pos, target)
                 local dist = vector.distance(pos, target)
 
-                -- Calcul Yaw cible
+                -- Yaw progressif
                 local target_yaw = math.atan2(dir.z, dir.x) - math.pi / 2
                 local current_yaw = player_yaw[name] or player:get_look_horizontal()
                 local diff = target_yaw - current_yaw
-
-                -- Normalisation -pi à pi
-                if diff > math.pi then diff = diff - 2 * math.pi end
-                if diff < -math.pi then diff = diff + 2 * math.pi end
-
-                -- Rotation progressive
+                if diff > math.pi then diff = diff - 2*math.pi end
+                if diff < -math.pi then diff = diff + 2*math.pi end
                 if math.abs(diff) > rotation_speed * dtime then
                     current_yaw = current_yaw + rotation_speed * dtime * (diff > 0 and 1 or -1)
                 else
@@ -258,21 +254,32 @@ minetest.register_globalstep(function(dtime)
                 -- Vitesse
                 local speed = player_speed[name] or 4
 
-                -- Avancer
+                -- Déplacement vers le point
                 if dist > 0.3 then
                     pos.x = pos.x + dir.x * dtime * speed
                     pos.y = pos.y + dir.y * dtime * speed
                     pos.z = pos.z + dir.z * dtime * speed
                     player:set_pos(pos)
                 else
+                    -- Passage au point suivant
                     state.index = state.index + 1
                     if state.index > #path_points then
+                        -- Dernière balise atteinte
                         following_players[name] = nil
                         minetest.chat_send_player(name, "Chemin terminé.")
+
+                        -- Vérifier si fly actif et position en l'air
+                        local privs = minetest.get_player_privs(name)
+                        if privs.fly then
+                            local node_below = minetest.get_node({x=target.x, y=target.y-1, z=target.z}).name
+                            if node_below == "air" then
+                                player:set_pos(target) -- Position finale exacte
+                                player:set_velocity({x=0, y=0, z=0}) -- Bloquer mouvement
+                            end
+                        end
                     end
                 end
             end
         end
     end
 end)
-
