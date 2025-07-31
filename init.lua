@@ -8,6 +8,24 @@ local function save_paths()
     storage:set_string("paths", minetest.serialize(paths))
 end
 
+-- Fonction pour afficher visuellement un chemin
+local function visualize_path(pathname)
+    local path = paths[pathname]
+    if not path then return end
+
+    for _, point in ipairs(path) do
+        minetest.add_particle({
+            pos = point,
+            velocity = {x=0, y=0.2, z=0},
+            acceleration = {x=0, y=0, z=0},
+            expirationtime = 3,
+            size = 4,
+            texture = "default_mese_crystal.png",
+            glow = 10,
+        })
+    end
+end
+
 -- Créer un nouveau chemin
 minetest.register_chatcommand("pathnew", {
     params = "<nom>",
@@ -35,6 +53,7 @@ minetest.register_chatcommand("pathadd", {
             local pos = vector.round(player:get_pos())
             table.insert(paths[param], pos)
             save_paths()
+            visualize_path(param) -- Visualise à chaque ajout
             return true, "Point ajouté au chemin '" .. param .. "'."
         end
     end
@@ -55,6 +74,19 @@ minetest.register_chatcommand("pathlist", {
     end
 })
 
+-- Visualiser un chemin
+minetest.register_chatcommand("pathshow", {
+    params = "<nom>",
+    description = "Affiche le chemin avec des particules",
+    func = function(name, param)
+        if paths[param] == nil or #paths[param] == 0 then
+            return false, "Ce chemin est vide ou inexistant."
+        end
+        visualize_path(param)
+        return true, "Chemin '" .. param .. "' affiché."
+    end
+})
+
 -- Suivre un chemin
 minetest.register_chatcommand("pathfollow", {
     params = "<nom>",
@@ -64,6 +96,7 @@ minetest.register_chatcommand("pathfollow", {
             return false, "Ce chemin est vide ou inexistant."
         end
         following_players[name] = {path = param, index = 1}
+        visualize_path(param) -- Visualiser au démarrage
         return true, "Début du suivi du chemin '" .. param .. "'."
     end
 })
@@ -115,6 +148,18 @@ minetest.register_globalstep(function(dtime)
                 end
             end
         end
+    end
+end)
+
+-- Mise à jour régulière de la visualisation (toutes les 3 secondes)
+local timer = 0
+minetest.register_globalstep(function(dtime)
+    timer = timer + dtime
+    if timer >= 3 then
+        for pathname, _ in pairs(paths) do
+            visualize_path(pathname)
+        end
+        timer = 0
     end
 end)
 
