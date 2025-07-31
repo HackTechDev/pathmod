@@ -121,6 +121,72 @@ minetest.register_chatcommand("pathclear", {
     end
 })
 
+-- Garde en mémoire quels chemins sont visibles
+local path_visible = {}
+
+-- Correction de clear_markers pour supprimer toutes les entités
+local function clear_markers(pathname)
+    if markers[pathname] then
+        for _, obj in ipairs(markers[pathname]) do
+            if obj and obj:get_luaentity() then
+                obj:remove()
+            end
+        end
+        markers[pathname] = {}
+    end
+
+    -- Supprimer aussi toutes les entités résiduelles dans le monde
+    for _, obj in ipairs(minetest.get_objects_inside_radius({x=0,y=0,z=0}, 10000)) do
+        local ent = obj:get_luaentity()
+        if ent and ent.name == "pathmod:marker" then
+            obj:remove()
+        end
+    end
+
+    -- Marquer le chemin comme invisible
+    path_visible[pathname] = false
+end
+
+-- Met à jour create_markers pour respecter path_visible
+local function create_markers(pathname)
+    if path_visible[pathname] == false then return end -- Ne pas recréer si caché
+    clear_markers(pathname)
+    markers[pathname] = {}
+    markers[pathname] = {}
+    local path = paths[pathname]
+    if not path then return end
+    for _, point in ipairs(path) do
+        local obj = minetest.add_entity(point, "pathmod:marker")
+        if obj then table.insert(markers[pathname], obj) end
+    end
+    path_visible[pathname] = true
+end
+
+-- Commande : cacher balises 3D
+minetest.register_chatcommand("pathhide", {
+    params = "<nom>",
+    description = "Cache les balises 3D du chemin",
+    func = function(name, param)
+        if markers[param] and #markers[param] > 0 then
+            clear_markers(param)
+            return true, "Balises du chemin '" .. param .. "' cachées."
+        else
+            return false, "Aucune balise affichée pour ce chemin."
+        end
+    end
+})
+
+-- Commande : cacher toutes les balises
+minetest.register_chatcommand("pathhideall", {
+    description = "Cache toutes les balises 3D",
+    func = function(name)
+        for pathname, _ in pairs(paths) do
+            clear_markers(pathname)
+        end
+        return true, "Toutes les balises ont été cachées."
+    end
+})
+
 -- Rotation fluide + déplacement
 minetest.register_globalstep(function(dtime)
     local rotation_speed = math.rad(120) -- vitesse angulaire max (120°/s)
