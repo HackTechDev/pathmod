@@ -1,6 +1,7 @@
 -- init.lua
 local storage = minetest.get_mod_storage()
 local paths = minetest.deserialize(storage:get_string("paths")) or {}
+local markers = {} -- balises 3D visibles
 local following_players = {}
 
 -- Sauvegarde des chemins
@@ -8,25 +9,54 @@ local function save_paths()
     storage:set_string("paths", minetest.serialize(paths))
 end
 
--- Fonction pour afficher visuellement un chemin
-local function visualize_path(pathname)
-    local path = paths[pathname]
-    if not path then return end
-
-    for _, point in ipairs(path) do
-        minetest.add_particle({
-            pos = point,
-            velocity = {x=0, y=0.2, z=0},
-            acceleration = {x=0, y=0, z=0},
-            expirationtime = 3,
-            size = 4,
-            texture = "default_mese_crystal.png",
-            glow = 10,
-        })
+-- Supprimer toutes les balises
+local function clear_markers(pathname)
+    if markers[pathname] then
+        for _, obj in ipairs(markers[pathname]) do
+            if obj and obj:get_luaentity() then
+                obj:remove()
+            end
+        end
+        markers[pathname] = {}
     end
 end
 
--- Créer un nouveau chemin
+-- Créer les balises d’un chemin
+local function create_markers(pathname)
+    clear_markers(pathname)
+    markers[pathname] = {}
+    local path = paths[pathname]
+    if not path then return end
+    for _, point in ipairs(path) do
+        local obj = minetest.add_entity(point, "followpath:marker")
+        if obj then table.insert(markers[pathname], obj) end
+    end
+end
+
+-- Définition de l’entité balise
+minetest.register_entity("followpath:marker", {
+    initial_properties = {
+        physical = false,
+        collide_with_objects = false,
+        visual = "cube",
+        visual_size = {x=0.5, y=0.5},
+        textures = {
+            "path_marker.png", "path_marker.png",
+            "path_marker.png", "path_marker.png",
+            "path_marker.png", "path_marker.png"
+        },
+        glow = 10,
+        pointable = false
+    },
+    on_step = function(self, dtime)
+        -- Effet de flottement léger
+        local pos = self.object:get_pos()
+        pos.y = pos.y + math.sin(minetest.get_gametime() * 2) * 0.005
+        self.object:set_pos(pos)
+    end
+})
+
+-- Commande : créer un chemin
 minetest.register_chatcommand("pathnew", {
     params = "<nom>",
     description = "Crée un nouveau chemin vide",
@@ -36,30 +66,31 @@ minetest.register_chatcommand("pathnew", {
         end
         paths[param] = {}
         save_paths()
+        clear_markers(param)
         return true, "Chemin '" .. param .. "' créé."
     end
 })
 
--- Ajouter un point à un chemin
+-- Commande : ajouter un point
 minetest.register_chatcommand("pathadd", {
     params = "<nom>",
-    description = "Ajoute la position actuelle au chemin nommé",
+    description = "Ajoute la position actuelle au chemin",
     func = function(name, param)
-        if paths[param] == nil then
-            return false, "Ce chemin n'existe pas."
+        if not paths[param] then
+            return false, "Chemin inexistant."
         end
         local player = minetest.get_player_by_name(name)
         if player then
             local pos = vector.round(player:get_pos())
             table.insert(paths[param], pos)
             save_paths()
-            visualize_path(param) -- Visualise à chaque ajout
-            return true, "Point ajouté au chemin '" .. param .. "'."
+            create_markers(param)
+            return true, "Point ajouté à '" .. param .. "'."
         end
     end
 })
 
--- Lister les chemins existants
+-- Commande : lister chemins
 minetest.register_chatcommand("pathlist", {
     description = "Liste tous les chemins",
     func = function(name)
@@ -74,34 +105,34 @@ minetest.register_chatcommand("pathlist", {
     end
 })
 
--- Visualiser un chemin
+-- Commande : afficher chemin
 minetest.register_chatcommand("pathshow", {
     params = "<nom>",
-    description = "Affiche le chemin avec des particules",
+    description = "Affiche les balises du chemin",
     func = function(name, param)
-        if paths[param] == nil or #paths[param] == 0 then
-            return false, "Ce chemin est vide ou inexistant."
+        if not paths[param] or #paths[param] == 0 then
+            return false, "Chemin vide ou inexistant."
         end
-        visualize_path(param)
-        return true, "Chemin '" .. param .. "' affiché."
+        create_markers(param)
+        return true, "Balises affichées pour '" .. param .. "'."
     end
 })
 
--- Suivre un chemin
+-- Commande : suivre chemin
 minetest.register_chatcommand("pathfollow", {
     params = "<nom>",
     description = "Suis le chemin nommé",
     func = function(name, param)
-        if paths[param] == nil or #paths[param] == 0 then
-            return false, "Ce chemin est vide ou inexistant."
+        if not paths[param] or #paths[param] == 0 then
+            return false, "Chemin vide ou inexistant."
         end
         following_players[name] = {path = param, index = 1}
-        visualize_path(param) -- Visualiser au démarrage
-        return true, "Début du suivi du chemin '" .. param .. "'."
+        create_markers(param)
+        return true, "Suivi du chemin '" .. param .. "'."
     end
 })
 
--- Supprimer un chemin
+-- Commande : supprimer chemin
 minetest.register_chatcommand("pathclear", {
     params = "<nom>",
     description = "Supprime un chemin",
@@ -109,6 +140,7 @@ minetest.register_chatcommand("pathclear", {
         if paths[param] then
             paths[param] = nil
             save_paths()
+            clear_markers(param)
             return true, "Chemin '" .. param .. "' supprimé."
         end
         return false, "Ce chemin n'existe pas."
@@ -127,19 +159,18 @@ minetest.register_globalstep(function(dtime)
                 local dir = vector.direction(pos, target)
                 local dist = vector.distance(pos, target)
 
-                -- Rotation du joueur
+                -- Orientation
                 local yaw = math.atan2(dir.z, dir.x) - math.pi / 2
                 player:set_look_horizontal(yaw)
 
                 -- Avancer
-                local speed = 4 -- m/s
+                local speed = 4
                 if dist > 0.3 then
                     pos.x = pos.x + dir.x * dtime * speed
                     pos.y = pos.y + dir.y * dtime * speed
                     pos.z = pos.z + dir.z * dtime * speed
                     player:set_pos(pos)
                 else
-                    -- Prochain point
                     state.index = state.index + 1
                     if state.index > #path_points then
                         following_players[name] = nil
@@ -148,18 +179,6 @@ minetest.register_globalstep(function(dtime)
                 end
             end
         end
-    end
-end)
-
--- Mise à jour régulière de la visualisation (toutes les 3 secondes)
-local timer = 0
-minetest.register_globalstep(function(dtime)
-    timer = timer + dtime
-    if timer >= 3 then
-        for pathname, _ in pairs(paths) do
-            visualize_path(pathname)
-        end
-        timer = 0
     end
 end)
 
