@@ -110,16 +110,25 @@ minetest.register_chatcommand("pathadd", {
     end
 })
 
+-- Suivi d’un chemin
 minetest.register_chatcommand("pathfollow", {
     params = "<nom>",
+    description = "Suis le chemin nommé",
     func = function(name, param)
         if not paths[param] or #paths[param] == 0 then
             return false, "Chemin vide ou inexistant."
         end
+        
+        -- Activer le suivi
         following_players[name] = {path = param, index = 1}
+        
+        -- Cacher les balises de ce chemin
+        clear_markers(param)
+        
+        -- Initialiser orientation fluide
         player_yaw[name] = minetest.get_player_by_name(name):get_look_horizontal()
-        create_markers(param)
-        return true, "Suivi de '" .. param .. "'."
+        
+        return true, "Suivi du chemin '" .. param .. "'. Les balises sont cachées."
     end
 })
 
@@ -150,7 +159,7 @@ local function clear_markers(pathname)
         markers[pathname] = {}
     end
 
-    -- Supprimer aussi toutes les entités résiduelles dans le monde
+    -- Supprimer entités résiduelles
     for _, obj in ipairs(minetest.get_objects_inside_radius({x=0,y=0,z=0}, 10000)) do
         local ent = obj:get_luaentity()
         if ent and ent.name == "pathmod:marker" then
@@ -158,7 +167,7 @@ local function clear_markers(pathname)
         end
     end
 
-    -- Marquer le chemin comme invisible
+    -- Marquer comme invisible
     path_visible[pathname] = false
 end
 
@@ -199,6 +208,19 @@ minetest.register_chatcommand("pathhideall", {
             clear_markers(pathname)
         end
         return true, "Toutes les balises ont été cachées."
+    end
+})
+
+-- Commande : afficher chemin
+minetest.register_chatcommand("pathshow", {
+    params = "<nom>",
+    description = "Affiche les balises du chemin",
+    func = function(name, param)
+        if not paths[param] or #paths[param] == 0 then
+            return false, "Chemin vide ou inexistant."
+        end
+        create_markers(param)
+        return true, "Balises affichées pour '" .. param .. "'."
     end
 })
 
